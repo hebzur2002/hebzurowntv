@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mera YouTube — Sirf Wahi Jo Main Chahta Hu</title>
+<style>
+  :root{
+    --bg: #0a0d16;
+    --panel: #11162299;
+    --border: #2a2f42;
+    --text: #e8eaf2;
+    --muted: #8a90a8;
+    --accent: #ff5c5c;
+    --accent2: #5ce1ff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(1px 1px at 20px 30px, #ffffff33, transparent),
+      radial-gradient(1px 1px at 140px 80px, #ffffff22, transparent),
+      radial-gradient(2px 2px at 300px 200px, #ffffff33, transparent),
+      radial-gradient(1px 1px at 400px 60px, #ffffff22, transparent),
+      radial-gradient(1px 1px at 500px 300px, #ffffff33, transparent),
+      linear-gradient(180deg,#0a0d16, #0d1120 60%, #0a0d16);
+    background-attachment: fixed;
+    color:var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height:100vh;
+    display:flex;
+    flex-direction:column;
+  }
+  header{
+    padding:20px 24px 12px;
+    text-align:center;
+  }
+  header h1{
+    margin:0;
+    font-size:1.4rem;
+    font-weight:700;
+    letter-spacing:.5px;
+  }
+  header p{
+    margin:4px 0 0;
+    color:var(--muted);
+    font-size:.85rem;
+  }
+  .layout{
+    flex:1;
+    display:flex;
+    gap:18px;
+    padding:12px 20px 20px;
+    max-width:1200px;
+    width:100%;
+    margin:0 auto;
+    flex-wrap:wrap;
+  }
+  .sidebar{
+    width:280px;
+    flex-shrink:0;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:16px;
+    backdrop-filter: blur(14px);
+    height:fit-content;
+  }
+  .sidebar h2{
+    font-size:.9rem;
+    margin:0 0 10px;
+    color:var(--muted);
+    text-transform:uppercase;
+    letter-spacing:1px;
+  }
+  form{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    margin-bottom:16px;
+  }
+  input[type=text]{
+    background:#0d1120;
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:9px 11px;
+    border-radius:10px;
+    font-size:.85rem;
+    outline:none;
+  }
+  input[type=text]:focus{ border-color:var(--accent2); }
+  button{
+    cursor:pointer;
+    border:none;
+    border-radius:10px;
+    padding:9px 12px;
+    font-size:.85rem;
+    font-weight:600;
+  }
+  .btn-add{
+    background:linear-gradient(135deg,var(--accent),#c23e3e);
+    color:white;
+  }
+  .btn-add:hover{ filter:brightness(1.1); }
+  .channel-list{
+    list-style:none;
+    margin:0; padding:0;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+    max-height:50vh;
+    overflow-y:auto;
+  }
+  .channel-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    background:#ffffff08;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:8px 10px;
+    cursor:pointer;
+    font-size:.85rem;
+    transition:.15s;
+  }
+  .channel-item:hover{ background:#ffffff14; }
+  .channel-item.active{
+    border-color:var(--accent2);
+    background:#5ce1ff14;
+  }
+  .channel-item .name{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:180px; }
+  .channel-item .del{
+    color:var(--muted);
+    background:none;
+    padding:2px 6px;
+    font-size:.9rem;
+  }
+  .channel-item .del:hover{ color:var(--accent); }
+  .main{
+    flex:1;
+    min-width:300px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:16px;
+    backdrop-filter: blur(14px);
+    display:flex;
+    flex-direction:column;
+  }
+  .video-wrap{
+    position:relative;
+    width:100%;
+    padding-top:56.25%;
+    border-radius:12px;
+    overflow:hidden;
+    background:#000;
+  }
+  .video-wrap iframe{
+    position:absolute; top:0; left:0; width:100%; height:100%; border:0;
+  }
+  .empty{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    height:300px;
+    color:var(--muted);
+    text-align:center;
+    font-size:.9rem;
+    padding:20px;
+  }
+  .hint{
+    color:var(--muted);
+    font-size:.75rem;
+    margin-top:10px;
+    line-height:1.5;
+  }
+  .hint a{ color:var(--accent2); }
+  .msg{
+    font-size:.78rem;
+    color:var(--accent);
+    min-height:16px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🌌 Mera YouTube</h1>
+  <p>Sirf wahi channels jo maine khud add kiye — no distraction, no recommendations</p>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+    <h2>Channel Add Karo</h2>
+    <form id="addForm">
+      <input type="text" id="channelInput" placeholder="Channel ID (UCxxxx) ya channel URL paste karo" required>
+      <button type="submit" class="btn-add">+ Add Channel</button>
+      <div class="msg" id="msg"></div>
+    </form>
+
+    <h2>Saved Channels</h2>
+    <ul class="channel-list" id="channelList"></ul>
+
+    <div class="hint">
+      Channel ID nahi pata? Channel ke page pe jao → View Page Source → "channelId" search karo (UC... se start hoga), ya <a href="https://commentpicker.com/youtube-channel-id.php" target="_blank">is tool</a> se apna @handle daal ke ID nikalo.
+    </div>
+  </div>
+
+  <div class="main" id="main">
+    <div class="empty">Left side se ek channel add karo, video yaha dikhega 👈</div>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = "channels";
+let channels = [];
+let activeId = null;
+
+function extractChannelId(raw){
+  raw = raw.trim();
+  // full channel URL: youtube.com/channel/UCxxxx
+  let m = raw.match(/channel\/(UC[a-zA-Z0-9_-]{20,})/);
+  if(m) return m[1];
+  // raw UC id directly pasted
+  m = raw.match(/^(UC[a-zA-Z0-9_-]{20,})$/);
+  if(m) return m[1];
+  return null;
+}
+
+function playlistFromChannelId(ucId){
+  // uploads playlist trick: replace UC prefix with UU
+  return "UU" + ucId.slice(2);
+}
+
+async function loadChannels(){
+  try{
+    const res = await window.storage.get(STORAGE_KEY, false);
+    channels = res ? JSON.parse(res.value) : [];
+  }catch(e){
+    channels = [];
+  }
+  renderList();
+  if(channels.length && !activeId){
+    selectChannel(channels[0].id);
+  }
+}
+
+async function saveChannels(){
+  try{
+    await window.storage.set(STORAGE_KEY, JSON.stringify(channels), false);
+  }catch(e){
+    console.error("Save failed", e);
+  }
+}
+
+function renderList(){
+  const ul = document.getElementById("channelList");
+  ul.innerHTML = "";
+  if(channels.length === 0){
+    ul.innerHTML = '<li style="color:var(--muted); font-size:.8rem;">Koi channel add nahi kiya abhi tak</li>';
+    return;
+  }
+  channels.forEach(ch => {
+    const li = document.createElement("li");
+    li.className = "channel-item" + (ch.id === activeId ? " active" : "");
+    li.innerHTML = `<span class="name">${ch.label}</span><button class="del" data-id="${ch.id}">✕</button>`;
+    li.addEventListener("click", (e) => {
+      if(e.target.classList.contains("del")) return;
+      selectChannel(ch.id);
+    });
+    li.querySelector(".del").addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeChannel(ch.id);
+    });
+    ul.appendChild(li);
+  });
+}
+
+function selectChannel(ucId){
+  activeId = ucId;
+  renderList();
+  const main = document.getElementById("main");
+  const playlistId = playlistFromChannelId(ucId);
+  main.innerHTML = `
+    <div class="video-wrap">
+      <iframe src="https://www.youtube.com/embed/videoseries?list=${playlistId}"
+        title="Channel videos" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen></iframe>
+    </div>
+  `;
+}
+
+function removeChannel(ucId){
+  channels = channels.filter(c => c.id !== ucId);
+  saveChannels();
+  if(activeId === ucId){
+    activeId = null;
+    document.getElementById("main").innerHTML = '<div class="empty">Left side se ek channel select karo 👈</div>';
+  }
+  renderList();
+}
+
+document.getElementById("addForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const input = document.getElementById("channelInput");
+  const msg = document.getElementById("msg");
+  const ucId = extractChannelId(input.value);
+
+  if(!ucId){
+    msg.textContent = "Ye valid Channel ID/URL nahi hai. UCxxxx format chahiye.";
+    return;
+  }
+  if(channels.find(c => c.id === ucId)){
+    msg.textContent = "Ye channel pehle se add hai.";
+    return;
+  }
+
+  msg.textContent = "";
+  const label = "Channel " + ucId.slice(0,10) + "...";
+  channels.push({ id: ucId, label });
+  await saveChannels();
+  input.value = "";
+  renderList();
+  selectChannel(ucId);
+});
+
+loadChannels();
+</script>
+
+</body>
+</html>
