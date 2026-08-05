@@ -325,12 +325,34 @@ function renderList(){
   });
 }
 
+async function fetchViaProxies(feedUrl){
+  // Try our own same-origin serverless function first (no CORS issue, most reliable)
+  const ownApi = `/api/rss?channel_id=${feedUrl.split("channel_id=")[1]}`;
+  const proxies = [
+    () => ownApi,
+    (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`
+  ];
+  let lastErr;
+  for(const buildUrl of proxies){
+    try{
+      const res = await fetch(buildUrl(feedUrl));
+      if(!res.ok) throw new Error("Bad status " + res.status);
+      const text = await res.text();
+      if(!text || text.length < 50) throw new Error("Empty response");
+      return text;
+    }catch(e){
+      lastErr = e;
+      continue; // try next source
+    }
+  }
+  throw lastErr || new Error("All sources failed");
+}
+
 async function fetchChannelVideos(ucId){
   const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`;
-  const res = await fetch(proxyUrl);
-  if(!res.ok) throw new Error("Feed fetch failed");
-  const text = await res.text();
+  const text = await fetchViaProxies(feedUrl);
   const xml = new DOMParser().parseFromString(text, "text/xml");
   const entries = Array.from(xml.getElementsByTagName("entry"));
   return entries.map(entry => {
