@@ -182,34 +182,53 @@
   }
   .back-btn:hover{ background:#ffffff1c; }
   .video-grid{
-    display:grid;
-    grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));
-    gap:16px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
   }
   .vcard{
     cursor:pointer;
+    display:flex;
+    gap:12px;
     background:#ffffff08;
     border:1px solid var(--border);
     border-radius:12px;
     overflow:hidden;
     transition:.15s;
+    padding:8px;
   }
   .vcard:hover{ background:#ffffff14; border-color:var(--accent2); }
   .vcard .thumb{
-    width:100%;
+    width:160px;
+    flex-shrink:0;
     aspect-ratio:16/9;
     object-fit:cover;
     display:block;
     background:#000;
+    border-radius:8px;
+  }
+  @media (max-width:480px){
+    .vcard .thumb{ width:120px; }
+  }
+  .vcard .vinfo{
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    min-width:0;
   }
   .vcard .vtitle{
-    font-size:.8rem;
-    padding:8px 10px 10px;
+    font-size:.85rem;
+    font-weight:600;
     line-height:1.35;
     display:-webkit-box;
     -webkit-line-clamp:2;
     -webkit-box-orient:vertical;
     overflow:hidden;
+    margin-bottom:6px;
+  }
+  .vcard .vmeta{
+    font-size:.75rem;
+    color:var(--muted);
   }
   .loading{
     color:var(--muted);
@@ -281,10 +300,10 @@ function playlistFromChannelId(ucId){
   return "UU" + ucId.slice(2);
 }
 
-async function loadChannels(){
+function loadChannels(){
   try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    channels = res ? JSON.parse(res.value) : [];
+    const raw = localStorage.getItem(STORAGE_KEY);
+    channels = raw ? JSON.parse(raw) : [];
   }catch(e){
     channels = [];
   }
@@ -294,9 +313,9 @@ async function loadChannels(){
   }
 }
 
-async function saveChannels(){
+function saveChannels(){
   try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify(channels), false);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(channels));
   }catch(e){
     console.error("Save failed", e);
   }
@@ -350,19 +369,53 @@ async function fetchViaProxies(feedUrl){
   throw lastErr || new Error("All sources failed");
 }
 
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function timeAgo(dateStr){
+  if(!dateStr) return "";
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if(mins < 60) return mins + " min pehle";
+  const hrs = Math.floor(mins / 60);
+  if(hrs < 24) return hrs + " ghante pehle";
+  const days = Math.floor(hrs / 24);
+  if(days < 30) return days + " din pehle";
+  const months = Math.floor(days / 30);
+  if(months < 12) return months + " mahine pehle";
+  return Math.floor(months / 12) + " saal pehle";
+}
+
 async function fetchChannelVideos(ucId){
+  const cacheKey = "videocache:" + ucId;
+  const cached = localStorage.getItem(cacheKey);
+  if(cached){
+    try{
+      const parsed = JSON.parse(cached);
+      if(Date.now() - parsed.ts < CACHE_TTL_MS){
+        return parsed.videos;
+      }
+    }catch(e){ /* ignore bad cache */ }
+  }
+
   const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${ucId}`;
   const text = await fetchViaProxies(feedUrl);
   const xml = new DOMParser().parseFromString(text, "text/xml");
   const entries = Array.from(xml.getElementsByTagName("entry"));
-  return entries.map(entry => {
+  const videos = entries.map(entry => {
     const videoId = entry.getElementsByTagName("yt:videoId")[0]?.textContent
       || entry.getElementsByTagNameNS("*","videoId")[0]?.textContent;
     const title = entry.getElementsByTagName("title")[0]?.textContent || "Untitled";
     const thumb = entry.getElementsByTagName("media:thumbnail")[0]?.getAttribute("url")
       || entry.getElementsByTagNameNS("*","thumbnail")[0]?.getAttribute("url");
-    return { videoId, title, thumb };
+    const published = entry.getElementsByTagName("published")[0]?.textContent;
+    return { videoId, title, thumb, published };
   }).filter(v => v.videoId);
+
+  try{
+    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), videos }));
+  }catch(e){ /* storage full or blocked, ignore */ }
+
+  return videos;
 }
 
 async function selectChannel(ucId){
@@ -386,7 +439,10 @@ async function renderGrid(ucId){
       const card = document.createElement("div");
       card.className = "vcard";
       card.innerHTML = `<img class="thumb" src="${v.thumb}" loading="lazy" alt="">
-        <div class="vtitle">${v.title}</div>`;
+        <div class="vinfo">
+          <div class="vtitle">${v.title}</div>
+          <div class="vmeta">${timeAgo(v.published)}</div>
+        </div>`;
       card.addEventListener("click", () => playVideo(v.videoId, ucId));
       grid.appendChild(card);
     });
