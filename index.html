@@ -181,6 +181,29 @@
     padding:7px 14px;
   }
   .back-btn:hover{ background:#ffffff1c; }
+  .tabs{
+    display:flex;
+    gap:8px;
+    margin-bottom:14px;
+    flex-wrap:wrap;
+  }
+  .tab{
+    background:#ffffff08;
+    color:var(--muted);
+    border:1px solid var(--border);
+    padding:7px 14px;
+    border-radius:999px;
+    font-size:.8rem;
+    font-weight:600;
+    transition:.15s;
+  }
+  .tab:hover{ background:#ffffff14; }
+  .tab.active{
+    background:linear-gradient(135deg,var(--accent2),#3a9dc4);
+    color:#04121a;
+    border-color:transparent;
+  }
+  .tab:disabled{ opacity:.5; cursor:default; }
   .video-grid{
     display:flex;
     flex-direction:column;
@@ -198,18 +221,35 @@
     padding:8px;
   }
   .vcard:hover{ background:#ffffff14; border-color:var(--accent2); }
-  .vcard .thumb{
+  .vcard .thumb-box{
+    position:relative;
     width:160px;
     flex-shrink:0;
+  }
+  @media (max-width:480px){
+    .vcard .thumb-box{ width:120px; }
+  }
+  .vcard .thumb{
+    width:100%;
     aspect-ratio:16/9;
     object-fit:cover;
     display:block;
     background:#000;
     border-radius:8px;
   }
-  @media (max-width:480px){
-    .vcard .thumb{ width:120px; }
+  .type-badge{
+    position:absolute;
+    bottom:4px;
+    right:4px;
+    font-size:.65rem;
+    font-weight:700;
+    padding:2px 6px;
+    border-radius:6px;
+    background:#000000b0;
+    color:var(--accent2);
+    letter-spacing:.3px;
   }
+  .type-badge.short{ color:var(--accent); }
   .vcard .vinfo{
     display:flex;
     flex-direction:column;
@@ -283,6 +323,13 @@
 const STORAGE_KEY = "channels";
 let channels = [];
 let activeId = null;
+
+// state for currently open channel's videos + shorts/long classification
+let currentVideos = [];
+let currentUcId = null;
+let activeTab = "all"; // "all" | "long" | "short"
+let videoTypes = {};    // videoId -> "short" | "long"
+let classifyBusy = false;
 
 function extractChannelId(raw){
   raw = raw.trim();
@@ -369,6 +416,29 @@ async function fetchViaProxies(feedUrl){
   throw lastErr || new Error("All sources failed");
 }
 
+// Generic proxy fetcher (for any URL, e.g. checking /shorts/ page)
+async function fetchGenericViaProxies(url){
+  const proxies = [
+    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    (u) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}`,
+    (u) => `https://corsproxy.io/?url=${encodeURIComponent(u)}`
+  ];
+  let lastErr;
+  for(const buildUrl of proxies){
+    try{
+      const res = await fetch(buildUrl(url));
+      if(!res.ok) throw new Error("Bad status " + res.status);
+      const text = await res.text();
+      if(!text || text.length < 50) throw new Error("Empty response");
+      return text;
+    }catch(e){
+      lastErr = e;
+      continue;
+    }
+  }
+  throw lastErr || new Error("All sources failed");
+}
+
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 function timeAgo(dateStr){
@@ -418,6 +488,101 @@ async function fetchChannelVideos(ucId){
   return videos;
 }
 
+// --- Shorts vs Long classification ---
+// Trick: hit https://www.youtube.com/shorts/{id}. YouTube keeps the canonical
+// link as /shorts/{id} if it really is a Short. If it's a normal long video,
+// YouTube serves the watch page and canonical becomes /watch?v={id}.
+async function detectVideoType(videoId){
+  const cacheKey = "shorttype:" + videoId;
+  const cached = localStorage.getItem(cacheKey);
+  if(cached === "short" || cached === "long") return cached;
+
+  try{
+    const html = await fetchGenericViaProxies(`https://www.youtube.com/shorts/${videoId}`);
+    const m = html.match(/<link rel="canonical" href="([^"]+)"/);
+    const canonical = m ? m[1] : "";
+    const type = canonical.includes("/shorts/") ? "short" : "long";
+    try{ localStorage.setItem(cacheKey, type); }catch(e){}
+    return type;
+  }catch(e){
+    return "long"; // fallback: agar check fail ho jaye, normal video maan lo
+  }
+}
+
+async function classifyAllVideos(videos, ucId){
+  if(classifyBusy) return;
+  classifyBusy = true;
+  const CONCURRENCY = 4;
+  let i = 0;
+  async function worker(){
+    while(i < videos.length){
+      const idx = i++;
+      const v = videos[idx];
+      if(!videoTypes[v.videoId]){
+        videoTypes[v.videoId] = await detectVideoType(v.videoId);
+        // only re-render if user is still on the same channel
+        if(currentUcId === ucId) renderVideoUI();
+      }
+    }
+  }
+  const workers = Array.from({length: CONCURRENCY}, worker);
+  await Promise.all(workers);
+  classifyBusy = false;
+}
+
+function filteredVideos(){
+  if(activeTab === "all") return currentVideos;
+  return currentVideos.filter(v => videoTypes[v.videoId] === activeTab);
+}
+
+function renderVideoUI(){
+  const main = document.getElementById("main");
+  const longCount = currentVideos.filter(v => videoTypes[v.videoId] === "long").length;
+  const shortCount = currentVideos.filter(v => videoTypes[v.videoId] === "short").length;
+  const stillChecking = currentVideos.some(v => !videoTypes[v.videoId]);
+
+  const tabsHtml = `
+    <div class="tabs">
+      <button class="tab ${activeTab === 'all' ? 'active' : ''}" data-tab="all">Sab (${currentVideos.length})</button>
+      <button class="tab ${activeTab === 'long' ? 'active' : ''}" data-tab="long">🎬 Videos (${longCount}${stillChecking ? '+' : ''})</button>
+      <button class="tab ${activeTab === 'short' ? 'active' : ''}" data-tab="short">⚡ Shorts (${shortCount}${stillChecking ? '+' : ''})</button>
+    </div>`;
+
+  const list = filteredVideos();
+
+  let bodyHtml;
+  if(list.length === 0){
+    bodyHtml = `<div class="empty">${stillChecking ? "Videos check ho rahe hain, thoda ruko..." : "Is category mein koi video nahi mila."}</div>`;
+  }else{
+    bodyHtml = `<div class="video-grid">` + list.map(v => {
+      const type = videoTypes[v.videoId];
+      const badge = type ? `<span class="type-badge ${type === 'short' ? 'short' : ''}">${type === 'short' ? 'SHORT' : 'VIDEO'}</span>` : "";
+      return `<div class="vcard" data-vid="${v.videoId}">
+        <div class="thumb-box">
+          <img class="thumb" src="${v.thumb}" loading="lazy" alt="">
+          ${badge}
+        </div>
+        <div class="vinfo">
+          <div class="vtitle">${v.title}</div>
+          <div class="vmeta">${timeAgo(v.published)}</div>
+        </div>
+      </div>`;
+    }).join("") + `</div>`;
+  }
+
+  main.innerHTML = tabsHtml + bodyHtml;
+
+  main.querySelectorAll(".tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      activeTab = btn.dataset.tab;
+      renderVideoUI();
+    });
+  });
+  main.querySelectorAll(".vcard").forEach(card => {
+    card.addEventListener("click", () => playVideo(card.dataset.vid, currentUcId));
+  });
+}
+
 async function selectChannel(ucId){
   activeId = ucId;
   renderList();
@@ -427,27 +592,18 @@ async function selectChannel(ucId){
 async function renderGrid(ucId){
   const main = document.getElementById("main");
   main.innerHTML = `<div class="loading">Videos load ho rahe hain...</div>`;
+  currentUcId = ucId;
+  activeTab = "all";
   try{
     const videos = await fetchChannelVideos(ucId);
+    if(currentUcId !== ucId) return; // user switched channel meanwhile
+    currentVideos = videos;
     if(videos.length === 0){
       main.innerHTML = `<div class="empty">Is channel ke videos nahi mile.</div>`;
       return;
     }
-    const grid = document.createElement("div");
-    grid.className = "video-grid";
-    videos.forEach(v => {
-      const card = document.createElement("div");
-      card.className = "vcard";
-      card.innerHTML = `<img class="thumb" src="${v.thumb}" loading="lazy" alt="">
-        <div class="vinfo">
-          <div class="vtitle">${v.title}</div>
-          <div class="vmeta">${timeAgo(v.published)}</div>
-        </div>`;
-      card.addEventListener("click", () => playVideo(v.videoId, ucId));
-      grid.appendChild(card);
-    });
-    main.innerHTML = "";
-    main.appendChild(grid);
+    renderVideoUI();
+    classifyAllVideos(videos, ucId); // runs in background, updates UI as it goes
   }catch(e){
     main.innerHTML = `<div class="empty">Videos load nahi ho paye. Thodi der baad try karo.</div>`;
   }
@@ -463,7 +619,7 @@ function playVideo(videoId, ucId){
         allowfullscreen></iframe>
     </div>
   `;
-  document.getElementById("backBtn").addEventListener("click", () => renderGrid(ucId));
+  document.getElementById("backBtn").addEventListener("click", () => renderVideoUI());
 }
 
 function removeChannel(ucId){
@@ -471,6 +627,8 @@ function removeChannel(ucId){
   saveChannels();
   if(activeId === ucId){
     activeId = null;
+    currentUcId = null;
+    currentVideos = [];
     document.getElementById("main").innerHTML = '<div class="empty">Left side se ek channel select karo 👈</div>';
   }
   renderList();
